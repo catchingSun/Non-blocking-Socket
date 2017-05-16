@@ -1,0 +1,43 @@
+一、项目
+     1.“Linux平台上群聊天系统”开发
+
+  1. 关键数据结构优化，系统
+
+  2. 已解决的问题：
+
+          （1）Segmentation fault (core dumped)
+          （2）解决聊天时read/write 阻塞
+                 a）通过fcntl设置socket fd为非阻塞模式
+                          int flags = fcntl(sockfd,F_GETFL,0);
+                          fcntl(sockfd,F_SETFL,flags | O_NONBLOCK);
+                      实质为置相应标志位为1
+                 b）创建多个线程用于数据收发
+                 c）新建UDP连接用于聊天
+                 最终fcntl 采用将read/write设置为非阻塞模式。但在非阻塞模式下，当。群聊天系统中，聊天时，需要实时发送数据，write/read同时调用，通常会在read调用阻塞，等待服务器返回数据。因此，将read设置为非阻塞模式，当套接字未关闭，但是无数据可读时，调用read操作后，（返回 EWOULDBLOCK错误码），再次调用read操作，会发生Segmentation fault (core dumped)错误，例如：
+                    if(z < 0 && errno == EWOULDBLOCK){
+                            z = read(sockfd,read_buf,sizeof(read_buf));
+                      }
+             read调用失败可能返回的错误码有， EINTR， EWOULDBLOCK，EAGAIN
+          EINTR，操作被中断，可继续读
+          EWOULDBLOCK，sockfd 为非阻塞模式，无数据读时返回该错误
+          EAGAIN，表示现在无数据，过会再试
+          http://blog.163.com/zhang0j_21/blog/static/1941154252014116101843410/
+          （3）探测客户端是否已经断开连接(当用户直接关闭电源，或直接拔掉网线时需要探测客户端是否断开)
+               a)通过setsocketopt（）调用设置keepative，但其探测时间较长，一般需要两个小时，多用于死亡时间较长的连接，而对于群聊天这种对实时性要求较强的应用并不适用。
+               b)write调用
+               c)客户端定时主动报告服务器端，服务器在特定时间未收到客户端发送的报文，则认为客户端连接断开。
+               d) Heart-Beat线程 原理和keepalive非常类似，都是发送一个信号给对方，如果多次发送都没有响应的话，则判断连接中断。它们的不同点在于，keepalive是tcp实现中内建的机制，是在创建tcp连接时通过设置参数启动keepalive机制；而heart-beat则需要在tcp之上的应用层实现。一个简单的heart-beat实现一般测试连接是否中断采用的时间间隔都比较短，可以很快的决定连接是否中断。并且，由于是在应用层实现，因为可以自行决定当判断连接中断后应该采取的行为，而keepalive在判断连接失败后只会将连接丢弃。
+               http://www.cnblogs.com/youxin/p/4056041.html
+          （4）通过select()调用，实现服务器端并发处理多个客户端连接,使用select相当于将read/write设置为非阻塞模式。其原理为循环遍历socket队列，监听队列中的socket上是否有事件到达。若有，则立即调用相应处理函数进行处理。可通过设置计时器（即select()的第五个参数），实现非阻塞模式下的select()； http://www.cnitblog.com/zouzheng/archive/2010/11/25/71711.aspx
+         函数原型int select (int maxfd + 1,fd_set *readset,fd_set *writeset,fd_set *exceptset,const struct timeval * timeout);
+               当客户端断开 ，同时服务器端调用close（）关闭负责与客户端进行数据收发的客户端socked_fd，可能会出现
+                a）select（）调用出错，返回-1
+                b）所有客户端关闭，服务器端也会退出。
+          （5）在聊天时，往往出现输入时，读取聊天消息阻塞，必须等输入结束按下回车才能读取聊天消息。对于此情况，可采用select和多线程方式解决，因为只有两个fd需要监管，因此采用创建线程，用于读取聊天消息并在屏幕上输出。
+二、linux小知识
+
+  1. linux下查看所安装软件或安装软件的方式。http://zyjustin9.iteye.com/blog/2026579在加一条wget url
+  2. 利用nmap扫描到 一个链接所打开的端口：http：80，mysql：3306
+  3. whois b-kdesign.com查看网页详细信息
+nmap b-kdesign.com扫描开放端口
+mysql -h 211.149.242.187 -u root -P 3306 –p登录mysql数据库
